@@ -1,435 +1,248 @@
+const ikeaRules = require('./rules-ikea.js');
+
 var exports = module.exports = {};
 
-exports.allProperties = function(obj) {
+exports.checkAllProperties = function(obj, path, errors){
 
-    var allYAMLProperties = [];
+    function iterate(obj, path, errors){
+        for (var property in obj) {
 
-    function reiterate(obj) {
-        for (var property in obj) { 
+            ikeaRules.camelCase(property, path, errors);
+
+            if (typeof obj[property] == 'object') {
+                if(/^[0-9]$/i.test(property)){
+                    var origin = path + '[' + property + ']';
+                } else {
+                    var origin = path + '.' + property;
+                };
+                iterate(obj[property], origin, errors);
+            };
+        };
+    };
+
+    iterate(obj, path, errors);
+
+};
+
+exports.checkBasePath = function(obj, path, errors){
+    
+    if(!obj.basePath){
+        errors.basePath.propertyMissing.items.push(' '+path);
+    };
+};
+
+exports.checkSecurityDefinitions = function(obj, path, errors){
+    
+    if(obj.securityDefinitions){
+        if (obj.securityDefinitions.constructor == Array) {
+            errors.securityDef.notObject.items.push(' .securityDefinitions');
+        } else {  
+            var secKeys = Object.keys(obj.securityDefinitions);
             
-            if (!/^[0-9]$/.test(property)) {
-            allYAMLProperties.push(property);
-            };
+            secKeys.forEach(function(key){
 
-            if (typeof obj[property] == 'object') {
-                reiterate(obj[property]);
-            };
-        };
-    };
-
-    reiterate(obj);
-
-    return allYAMLProperties;
-};
-
-exports.onlyBasePath = function(obj) {
-
-    var onlyBasePath = {basePath: []};
-
-    function reiterate(obj) {
-        for (var property in obj) { 
-            
-            if (property == 'basePath') {
-                
-                obj[property] = obj[property] || [];
-                onlyBasePath = {basePath: obj[property]};
-            };
-
-            if (typeof obj[property] == 'object') {
-                reiterate(obj[property]);
-            };
-        };
-    };
-
-    reiterate(obj);
-
-    return onlyBasePath
-};
-
-exports.onlyParameters = function(obj) {
-
-    var Params = [];
-    var parsingErrors = '';
-
-    function reiterate(obj, path) {
-        
-        for (var property in obj) { 
-
-            if (property == 'parameters') {
-                
-                if (obj[property] == null) {
-                    parsingErrors = parsingErrors + 'The following parameters have not been defined properly (null value): ' +
-                    path + '. Please correct!'
-                } else {
+                var secObj = obj.securityDefinitions[key];
+                var newPath = path + '.securityDefinitions.' + key;
+                var secObjKeys = Object.keys(secObj);
                     
-                    if (obj[property].constructor != Array) {
-                        parsingErrors = parsingErrors + 'Following parameters have not been defined as an array (using dash "-"): ' + 
-                        path + '. Please correct!';
-                    } else {
-                        obj[property].forEach(function(element) {
-                            if (!Object.keys(element).includes('name') || !Object.keys(element).includes('in')) {
-                                parsingErrors = parsingErrors + 'Following parameters have not been defined properly' +
-                                ' (no location and/or name declared): ' 
-                                + path + '.' + element.name + '. Please correct!';
-                            } else {
-                                Params.push({name: element.name, in: element.in});
-                            };
-                        });
-                    };
-                };
-            };
-
-            if (typeof obj[property] == 'object') {
-                var origin = path + '.' + property;
-                reiterate(obj[property], origin);
-            };
-
-        };
-        
-        return {
-            Params,
-            parsingErrors
-        };
-    };
-
-    var onlyParams = reiterate(obj, '/');
-
-    //var paramsLoc = onlyParams.Params.map(function(a){return a.in})
-
-    // if (onlyParams.Params.length == 0) {
-    //     onlyParams.parsingErrors = onlyParams.parsingErrors + 'No parameters defined.';
-    // } else if (!paramsLoc.includes('query')) {
-    //     onlyParams.parsingErrors = onlyParams.parsingErrors + 'No query parameters defined.';
-    // } else if (!paramsLoc.includes('header')) {
-    //     onlyParams.parsingErrors = onlyParams.parsingErrors + 'No header parameters defined.';
-    // };
-
-    return onlyParams;
-};
-
-exports.onlyResponsesSchema = function(obj) {
-
-    var Resp = [];
-    var parsingErrors = '';
-
-    function reiterate(obj, path) {
-        
-        for (var property in obj) { 
-
-            if (property == 'responses') {
-                
-                if (obj[property] == null) {
-                    parsingErrors = parsingErrors + 'The following responses have not been defined properly (null value): ' +
-                    path + '. Please correct!'
-                } else {
-                    
-                    if (obj[property].constructor == Array) {
-                        parsingErrors = parsingErrors + 'Following responses have been defined as an array (using dash "-"): ' + 
-                        path + '. Please correct!';
-                    } else {
-                        
-                        for (var item in obj[property]) {
-                            
-                            var newOrigin = path + '.' + item;
-                            
-                            if (Object.keys(obj[property][item]).includes('schema')) {
-
-                                if (Object.keys(obj[property][item].schema).includes('$ref') &&
-                                !obj[property][item].schema.$ref.startsWith('#/definitions/')) {
-
-                                    parsingErrors = parsingErrors + 'Following responses\' references have ' +
-                                    ' not been defined properly (incorrect $ref naming - must ' +
-                                    'start with \'#/definitions/\'): ' + newOrigin + '. Please correct!' 
-
-                                } else if (Object.keys(obj[property][item].schema).includes('$ref') &&
-                                obj[property][item].schema.$ref == null) {
-                                    
-                                    parsingErrors = parsingErrors + 'Following responses\' references have ' +
-                                    ' not been defined properly ($ref declared but null): ' 
-                                    + newOrigin + '. Please correct!' 
-                                
-                                } else if (Object.keys(obj[property][item].schema).includes('type') &&
-                                obj[property][item].schema.type == null) {
-                                    
-                                    parsingErrors = parsingErrors + 'Following responses have ' +
-                                    ' not been defined properly (type declared but null): ' 
-                                    + newOrigin + '. Please correct!'
-                                
-                                } else {
-                                    Resp.push({name: newOrigin, schema: obj[property][item].schema})
-                                };
-
-                            } else {
-                                parsingErrors = parsingErrors + 'Following responses have not been defined properly '
-                                + '(schema missing): ' + newOrigin + '. Please correct!'
-                            };
+                    secObjKeys.forEach(function(element){
+                        var secObjValue = secObj[element];
+                        if (!secObjValue) {
+                            errors.securityDef.isNull.items.push(' '+newPath);
                         };
+                    })
+
+                    if(/^(apikey)$/i.test(secObj.type)) {
+                        if (!secObj.type) {
+                            errors.securityDef.propertyMissing.items.push(' '+newPath);
+                        };
+                        if (!secObj.in) {
+                            errors.securityDef.propertyMissing.items.push(' '+newPath);
+                        };
+                        if (!secObj.name) {
+                            errors.securityDef.propertyMissing.items.push(' '+newPath);
+                        };
+                        ikeaRules.authApiKeyHeaders(secObj, newPath, errors);
                     };
-                };
-            };
-
-            if (typeof obj[property] == 'object') {
-                var origin = path + '.' + property
-                reiterate(obj[property], origin);
-            };
+            });
         };
-        
-        return {
-            Resp,
-            parsingErrors
+
+    } else {
+        if(typeof securityDefinitions == 'object'){
+            errors.securityDef.notObject.items.push(' .securityDefinitions');  
         };
-    };
-
-    var onlyResp = reiterate(obj, '/');
-
-    return onlyResp;
+    }; 
 };
 
-exports.onlyDefinitionsType = function(obj) {
+exports.checkProduces = function(obj, path, errors){
 
-    var Def = [];
-    var parsingErrors = '';
+    if(obj.produces){
+        if(obj.produces.constructor != Array){
+            errors.produces.notArray.items.push(' '+path+'.produces');
+        } else {
+            obj.produces.forEach(function(element, index){
+                var newPath = path + '.produces[' + index + ']';
+                ikeaRules.mediaTypeVers(element, newPath, errors);
+            });
+        };
+    } else {
+        if(typeof obj.produces == 'object'){
+            errors.produces.notArray.items.push(' '+path+'.produces');
+        };
+    };
+};
 
-    function reiterate(obj, path) {
+exports.checkPaths = function(obj, path, errors){
+    
+    if(obj.paths){
+        let pathkeys = Object.keys(obj.paths);
+        pathkeys.forEach(function(key){
+            let pathObj = obj.paths[key];
+            let parentNames = path + '.paths.'+ key;
+
+            if(!pathObj) {
+                errors.paths.notObject.items.push(' '+parentNames);
+            }
+            ikeaRules.trailingSlashes(key, parentNames, errors);
+            checkIndPaths(pathObj, obj.definitions, parentNames, errors);
+        });
+    } else {
+        errors.paths.noPath.items.push('/paths')
+    };
+};
+
+function checkIndPaths(indPath, definitions, path, errors) {
+    
+    for (var property in indPath) {  
+
+        var pathBody = indPath[property];
+        var newPath = path + '.' + property;
+
+        //in paths following rules are to apply:
+        //must be objects: HTTP methods, responses, externalDocs
+        //must be arrays: tags, produces, parameters, security
+        //must be strings: summary, description, operationId
+        if(/((.parameters)$|(.tags)$|(.security)$|(.produces)$)/i.test(newPath) 
+        && (pathBody == null || pathBody.constructor != Array)) {
+            errors.paths.notArray.items.push(' '+newPath);
+        };
         
-        for (var property in obj) { 
+        if(/((.responses)$|(.externalDocs)$|(.paths)$|(.get)$|(.post)$|(.put)$|(.delete)$|(.patch)$|(.head)$|(.options)$)/i.test(newPath) 
+        && (pathBody == null || pathBody.constructor != Object)) {
+            errors.paths.notObject.items.push(' '+newPath);
+        };
+        
+        if(/((.summary)$|(.description)$|(.operationId)$)/i.test(newPath) 
+        && (pathBody == null || pathBody.constructor != String)) {
+            errors.paths.notString.items.push(' '+newPath);
+        };
 
-            if (property == 'definitions') {
-                
-                newPath = path + '.' + property;
+        if(pathBody && /((.get)$|(.post)$|(.put)$|(.delete)$|(.patch)$|(.head)$|(.options)$)/i.test(newPath) 
+        && (!Object.keys(pathBody).includes('responses') || !pathBody.responses)) {
+            errors.paths.noResponses.items.push(' '+newPath);
+        };   
+        
+        if (property == 'produces') {
+            exports.checkProduces(pathBody, newPath, errors);
+        };
 
-                if (obj[property] == null) {
-                    parsingErrors = parsingErrors + 'Definitions (local references) have not been defined properly ' +
-                    '(null value): ' + newPath + '. Please correct!'
-                } else {
-                    
-                    if (obj[property].constructor == Array) {
-                        parsingErrors = parsingErrors + 'Definitions (local references) have been defined ' +
-                        'as an array (using dash "-"): ' + newPath + '. Please correct!';
+        if (property == 'parameters') {
+            checkParameters(pathBody, newPath, errors);
+        };
+
+        if (path.endsWith('.responses')) {
+            checkResponses(pathBody, definitions, newPath, errors);
+        };
+
+        if (typeof pathBody == 'object' 
+        && !path.endsWith('.parameters') 
+        && !path.endsWith('.produces')
+        && !path.endsWith('.responses')) {
+            var origin = path + '.' + property;
+            checkIndPaths(pathBody, definitions, origin, errors);
+        };
+    };
+};
+
+function checkParameters(parameters, path, errors) {
+
+    parameters.forEach(function(parameter, index) {
+        
+        //parameters are described using following properties
+        //must properties: name, location, type or schema
+        //optional properties: description, required
+
+        if(parameter.name) {
+            var newPath = path + '.' + parameter.name;
+        } else {
+            var newPath = path + '[' + index + ']';
+            errors.parameters.propertyMissing.items.push(' '+newPath);
+        };
+
+        var indParamKeys = Object.keys(parameter);
+        indParamKeys.forEach(function(element){
+            var indParamObj = parameter[element];
+            if (!indParamObj) {
+                errors.parameters.isNull.items.push(' '+newPath+'.'+element)
+            };
+        });
+
+        if(!parameter.in) {
+            errors.parameters.propertyMissing.items.push(' '+newPath);
+        };
+
+        if(!parameter.type && !parameter.schema) {
+            errors.parameters.propertyMissing.items.push(' '+newPath);
+        };
+
+        ikeaRules.queryParameters(parameter, newPath, errors);
+        ikeaRules.headerParameters(parameter, newPath, errors);
+    });
+
+};
+
+function checkResponses(indResponse, definitions, path, errors) {
+
+    if(!indResponse) {
+        errors.responses.isNull.items.push(' '+path);
+    } else {
+        
+        if((!indResponse.schema || !indResponse.description)) {
+            errors.responses.propertyMissing.items.push(' '+path);
+        };
+    
+        if(indResponse.schema && !indResponse.schema.type && !indResponse.schema.$ref) {
+            errors.responses.schemaMissing.items.push(' '+path+'.schema');
+        };
+    
+        if(indResponse.schema && indResponse.schema.$ref){
+            if(indResponse.schema.$ref.startsWith('#/definitions/')) {
+                if(definitions){
+                    var defName = indResponse.schema.$ref.split("/")[2];
+                    var defKeys = Object.keys(definitions);
+                    var defObj = definitions[defName];
+                    var defPath = ' /.definitions.' + defName;
+
+                    if(!defKeys.includes(defName)){
+                        errors.responses.refInvalid.items.push(' '+path+'.schema.$ref');
                     } else {
-                        
-                        for (var item in obj[property]) {
-                            
-                            if (Object.keys(obj[property][item]).includes('type')) {
-                                Def.push({name: item, type: obj[property][item].type})
-                            } else {
-                                Def.push({name: item, type: 'object'})
+                        if(defObj.type){
+                            ikeaRules.jsonObjResponses(defObj, defPath, errors);
+                        } else {
+                            if(typeof defObj.type == 'object' 
+                            && !errors.responses.defNotString.items.includes(defPath+'.type')){
+                                errors.responses.defNotString.items.push(defPath+'.type');
                             };
                         };
                     };
                 };
+            } else {
+                errors.responses.refNaming.items.push(' '+path+'.schema.$ref');
             };
-
-            if (typeof obj[property] == 'object') {
-                var origin = path + '.' + property
-                reiterate(obj[property], origin);
-            };
-
-        };
-        
-        return {
-            Def,
-            parsingErrors
-        };
-    };
-
-    var onlyDef = reiterate(obj, '/');
-
-    return onlyDef;
-};
-
-exports.onlyPaths = function(obj) {
+        }; 
     
-    var Paths = [];
-    var parsingErrors = '';
-
-    function reiterate(obj, path) {
-        
-        for (var property in obj) {  
-
-            if (property == 'paths') {
-                
-                var path = path + '.' + property; 
-
-                if (obj[property] == null) {
-
-                    parsingErrors = parsingErrors + 'No path parameters specified!';
-
-                } else {
-                    
-                    if (obj[property].constructor == Array) {
-                    
-                        parsingErrors = parsingErrors + 'Paths are defined as an array. Please correct!';
-
-                    } else {
-
-                        for (var item in obj[property]) {
-
-                            Paths.push({name: path +'.' + item, path: item});
-                        };
-                        
-                    };
-                };
-            };
-
-            if (typeof obj[property] == 'object') {
-                var origin = path + '.' + property;
-                reiterate(obj[property], origin);
-            };
-        };
-
-        return {
-            Paths,
-            parsingErrors
-        };
+        if (indResponse.schema && indResponse.schema.type) {
+            ikeaRules.jsonObjResponses(indResponse.schema, path, errors);
+        };    
     };
-
-    var onlyPaths = reiterate(obj, '/');
-
-    if(onlyPaths.Paths.length == 0) {
-        onlyPaths.parsingErrors = onlyPaths.parsingErrors + 'No paths have been defined!';
-    };
-    
-
-    return onlyPaths;
-};
-
-exports.onlyProduces = function(obj) {
-    
-    var Produces = [];
-    var parsingErrors = '';
-
-    function reiterate(obj, path) {
-        
-        for (var property in obj) {  
-
-            if (property == 'produces') {
-                
-                var newPath = path + '.' + property; 
-
-                if (obj[property] == null) {
-
-                    parsingErrors = parsingErrors + 'Produces section (' + newPath + ') not specified!';
-
-                } else {
-                    
-                    if (obj[property].constructor != Array) {
-                    
-                        parsingErrors = parsingErrors + 'Produces section (' + newPath 
-                        + ') is not defined as an array. Please correct!';
-
-                    } else {
-                        
-                        obj[property].forEach(function(element) {
-                            Produces.push({name: newPath, produces: element});
-                        });
-                    };
-                };
-            };
-
-            if (typeof obj[property] == 'object') {
-                var origin = path + '.' + property;
-                reiterate(obj[property], origin);
-            };
-        };
-
-        return {
-            Produces,
-            parsingErrors
-        };
-    };
-
-    var onlyProduces = reiterate(obj, '/');
-    
-    if(onlyProduces.Produces.length == 0) {
-        onlyProduces.parsingErrors = onlyProduces.parsingErrors + 'No produces section defined!';
-    };
-
-    return onlyProduces;
-};
-
-exports.onlySecurityDefinitions = function(obj) {
-    
-    var SecDef = [];
-    var parsingErrors = '';
-
-    function reiterate(obj, path) {
-        
-        for (var property in obj) {  
-
-            if (/^[securitydefinitions]{19}$/i.test(property)) {
-                
-                var newPath = path + '.' + property; 
-
-                if (obj[property] == null) {
-
-                    parsingErrors = parsingErrors + 'Security definitions are not specified!';
-
-                } else {
-                    
-                    if (obj[property].constructor == Array) {
-                    
-                        parsingErrors = parsingErrors + 'Security definitions are specified as' +  
-                        + 'an array. Please correct!';
-
-                    } else {
-                        
-                        for (var element in obj[property]) {
-                            
-                            var secDefObj = obj[property][element];
-                            var newOrigin = newPath + '.' + element;
-
-                            if (Object.keys(secDefObj).includes('in')) {
-                                
-                                if (secDefObj.in == null) {
-
-                                    parsingErrors = parsingErrors + 'The following security definition: ' 
-                                    + newOrigin + ', is not defined properly (location is null). ' +
-                                    'Please correct!';
-
-                                } else {
-                                    
-                                    SecDef.push({name: newOrigin, body: secDefObj});
-                                };
-
-                            } else {
-                                
-                                parsingErrors = parsingErrors + 'The following security definition: ' 
-                                + newOrigin + ', is not defined properly (location is missing). ' +
-                                'Please correct!';
-                            };
-                        };
-                    };
-                };
-            };
-
-            if (typeof obj[property] == 'object') {
-                var origin = path + '.' + property;
-                reiterate(obj[property], origin);
-            };
-        };
-
-        return {
-            SecDef,
-            parsingErrors
-        };
-    };
-
-    var onlySecDef = reiterate(obj, '/');
-    
-    if(onlySecDef.SecDef.length == 0) {
-        onlySecDef.parsingErrors = onlySecDef.parsingErrors + 'No security definitions defined!';
-    };
-
-    return onlySecDef;
-};
-
-exports.swaggerErrors = function(obj) {
-
-    var swaggerErrors = exports.onlyParameters(obj).parsingErrors + ' ' + 
-    exports.onlyResponsesSchema(obj).parsingErrors + ' ' + exports.onlyDefinitionsType(obj).parsingErrors +
-    exports.onlyPaths(obj).parsingErrors + exports.onlyProduces(obj).parsingErrors +
-    exports.onlySecurityDefinitions(obj).parsingErrors;
-
-    return swaggerErrors;
 };
